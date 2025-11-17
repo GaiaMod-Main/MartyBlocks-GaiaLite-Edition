@@ -221,7 +221,7 @@ const messages = defineMessages({
 const AVAILABLE_USER_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'];
 const DEFAULT_USER_KEY = AVAILABLE_USER_KEYS[0];
 const PREPARING_PROGRESS_DURATION_MS = 1000;
-const AVAILABLE_LLM_MODELS = ['gpt-4o', 'gpt-5', 'gpt-5-mini', 'gpt-5-chat'];
+const AVAILABLE_LLM_MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-5', 'gpt-5-mini', 'gpt-5-chat'];
 const DEFAULT_LLM_MODEL = 'gpt-5';
 
 // Added: storage key
@@ -1248,7 +1248,7 @@ class TalkWithMarty extends React.Component {
         });
         console.log("after playMarty");
         // comment in the return to playback locally as well
-        return;
+        // return;
 
         const urlCreator = window.URL || window.webkitURL;
         if (!urlCreator) {
@@ -1353,7 +1353,7 @@ class TalkWithMarty extends React.Component {
                 config: { mimeType }
             },
             llm: {
-                provider: 'openai',
+                provider: 'frame-engine',
                 conversationHistory: this.buildConversationHistory(),
                 settings: this.buildLLMSettingsForRequest(),
                 model: this.getSelectedLLMModel()
@@ -1377,7 +1377,7 @@ class TalkWithMarty extends React.Component {
         const payload = {
             text: message,
             llm: {
-                provider: 'openai',
+                provider: 'frame-engine',
                 conversationHistory: this.buildConversationHistory(),
                 settings: this.buildLLMSettingsForRequest(),
                 model: this.getSelectedLLMModel()
