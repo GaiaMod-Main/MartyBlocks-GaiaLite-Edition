@@ -221,8 +221,17 @@ const messages = defineMessages({
 const AVAILABLE_USER_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'];
 const DEFAULT_USER_KEY = AVAILABLE_USER_KEYS[0];
 const PREPARING_PROGRESS_DURATION_MS = 1000;
-const AVAILABLE_LLM_MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-5', 'gpt-5-mini', 'gpt-5-chat'];
+const AVAILABLE_LLM_MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-5', 'gpt-5-mini', 'gpt-5-chat', 'gemini-2.5-flash-lite'];
 const DEFAULT_LLM_MODEL = 'gpt-5';
+const FRAME_ENGINE_PROVIDER = 'frame-engine';
+const LLM_MODEL_METADATA = {
+    'gpt-4o-mini': { provider: 'openai' },
+    'gpt-4o': { provider: 'openai' },
+    'gpt-5': { provider: 'openai' },
+    'gpt-5-mini': { provider: 'openai' },
+    'gpt-5-chat': { provider: 'openai' },
+    'gemini-2.5-flash-lite': { provider: 'gemini' }
+};
 
 // Added: storage key
 const SESSION_STORAGE_KEY = 'talkWithMartyState';
@@ -259,7 +268,8 @@ class TalkWithMarty extends React.Component {
             llmSettings: {
                 safeguards: '',
                 instructions: '',
-                model: DEFAULT_LLM_MODEL
+                model: DEFAULT_LLM_MODEL,
+                useCodeFrame: true
             },
             isMicLoading: false,
             recordingError: null,
@@ -453,22 +463,29 @@ class TalkWithMarty extends React.Component {
                         updates.transcript = parsed.transcript;
                     }
                     if (parsed.llmSettings && typeof parsed.llmSettings === 'object') {
-                        const {
-                            prompt: _ignoredPrompt,
-                            instructions,
-                            safeguards,
-                            model
-                        } = parsed.llmSettings;
-                        const rawModel = typeof model === 'string' ? model : '';
-                        const sanitizedModel = AVAILABLE_LLM_MODELS.includes(rawModel)
-                            ? rawModel
-                            : (this.state.llmSettings.model || DEFAULT_LLM_MODEL);
-                        updates.llmSettings = {
-                            instructions: typeof instructions === 'string' ? instructions : this.state.llmSettings.instructions,
-                            safeguards: typeof safeguards === 'string' ? safeguards : this.state.llmSettings.safeguards,
-                            model: sanitizedModel
-                        };
-                    }
+                    const {
+                        prompt: _ignoredPrompt,
+                        instructions,
+                        safeguards,
+                        model,
+                        useCodeFrame
+                    } = parsed.llmSettings;
+                    const rawModel = typeof model === 'string' ? model : '';
+                    const sanitizedModel = AVAILABLE_LLM_MODELS.includes(rawModel)
+                        ? rawModel
+                        : (this.state.llmSettings.model || DEFAULT_LLM_MODEL);
+                    const storedUseCodeFrame = typeof useCodeFrame === 'boolean'
+                        ? useCodeFrame
+                        : (typeof this.state.llmSettings.useCodeFrame === 'boolean'
+                            ? this.state.llmSettings.useCodeFrame
+                            : true);
+                    updates.llmSettings = {
+                        instructions: typeof instructions === 'string' ? instructions : this.state.llmSettings.instructions,
+                        safeguards: typeof safeguards === 'string' ? safeguards : this.state.llmSettings.safeguards,
+                        model: sanitizedModel,
+                        useCodeFrame: storedUseCodeFrame
+                    };
+                }
                     const storedCurrentUser = typeof parsed.currentUser === 'string' ? parsed.currentUser : null;
                     if (storedCurrentUser && sanitizedUsers.some(user => user.name === storedCurrentUser)) {
                         updates.currentUser = storedCurrentUser;
@@ -505,6 +522,9 @@ class TalkWithMarty extends React.Component {
         if (typeof window === 'undefined' || !window.localStorage) return;
         try {
             const { llmSettings } = this.state;
+            const persistedUseCodeFrame = typeof llmSettings?.useCodeFrame === 'boolean'
+                ? llmSettings.useCodeFrame
+                : true;
             const payload = {
                 transcript: this.state.transcript,
                 users: this.state.users,
@@ -514,7 +534,8 @@ class TalkWithMarty extends React.Component {
                     safeguards: (llmSettings && llmSettings.safeguards) || '',
                     model: llmSettings && AVAILABLE_LLM_MODELS.includes(llmSettings.model)
                         ? llmSettings.model
-                        : DEFAULT_LLM_MODEL
+                        : DEFAULT_LLM_MODEL,
+                    useCodeFrame: persistedUseCodeFrame
                 }
             };
             window.localStorage.setItem(
@@ -1327,7 +1348,32 @@ class TalkWithMarty extends React.Component {
         console.log('LLM request settings', settings, 'source', this.llmSettingsSource);
         return {
             ...settings,
-            userName: this.state.currentUser
+            userName: this.state.currentUser,
+            students: this.state.users
+        };
+    }
+
+    getLLMModelMetadata(model) {
+        if (model && LLM_MODEL_METADATA[model]) {
+            return LLM_MODEL_METADATA[model];
+        }
+        if (LLM_MODEL_METADATA[DEFAULT_LLM_MODEL]) {
+            return LLM_MODEL_METADATA[DEFAULT_LLM_MODEL];
+        }
+        return { provider: 'openai' };
+    }
+
+    buildFrameEngineProviderConfig(selectedModel) {
+        const useCodeFrame = this.state.llmSettings && this.state.llmSettings.useCodeFrame !== false;
+        const metadata = this.getLLMModelMetadata(selectedModel);
+        return {
+            session: {
+                useCodeFrame
+            },
+            llm: {
+                provider: metadata.provider || 'openai',
+                model: selectedModel || DEFAULT_LLM_MODEL
+            }
         };
     }
 
@@ -1346,18 +1392,24 @@ class TalkWithMarty extends React.Component {
 
     buildSpeechRequestPayload(arrayBuffer, mimeType) {
         const includeSpeech = this.shouldIncludeSpeech();
+        const selectedModel = this.getSelectedLLMModel();
+        const providerConfig = this.buildFrameEngineProviderConfig(selectedModel);
+        const llmConfig = {
+            provider: FRAME_ENGINE_PROVIDER,
+            conversationHistory: this.buildConversationHistory(),
+            settings: this.buildLLMSettingsForRequest(),
+            model: selectedModel
+        };
+        if (providerConfig) {
+            llmConfig.providerConfig = providerConfig;
+        }
         const payload = {
             audioBuffer: Array.from(new Uint8Array(arrayBuffer)),
             stt: {
                 provider: 'openai-whisper',
                 config: { mimeType }
             },
-            llm: {
-                provider: 'frame-engine',
-                conversationHistory: this.buildConversationHistory(),
-                settings: this.buildLLMSettingsForRequest(),
-                model: this.getSelectedLLMModel()
-            },
+            llm: llmConfig,
             includeSpeech,
             includeTranscript: true,
             userName: this.state.currentUser
@@ -1374,14 +1426,20 @@ class TalkWithMarty extends React.Component {
 
     buildTextRequestPayload(message) {
         const includeSpeech = this.shouldIncludeSpeech();
+        const selectedModel = this.getSelectedLLMModel();
+        const providerConfig = this.buildFrameEngineProviderConfig(selectedModel);
+        const llmConfig = {
+            provider: FRAME_ENGINE_PROVIDER,
+            conversationHistory: this.buildConversationHistory(),
+            settings: this.buildLLMSettingsForRequest(),
+            model: selectedModel
+        };
+        if (providerConfig) {
+            llmConfig.providerConfig = providerConfig;
+        }
         const payload = {
             text: message,
-            llm: {
-                provider: 'frame-engine',
-                conversationHistory: this.buildConversationHistory(),
-                settings: this.buildLLMSettingsForRequest(),
-                model: this.getSelectedLLMModel()
-            },
+            llm: llmConfig,
             includeSpeech,
             userName: this.state.currentUser
         };

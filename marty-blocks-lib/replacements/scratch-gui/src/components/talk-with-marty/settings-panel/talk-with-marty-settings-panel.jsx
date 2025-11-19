@@ -15,6 +15,11 @@ const messages = defineMessages({
         defaultMessage: 'Guidance for how Marty should respond'
     },
     settingModel: {id: 'talkWithMarty.settingModel', defaultMessage: 'Model'},
+    settingCodeFrame: {id: 'talkWithMarty.settingCodeFrame', defaultMessage: 'Code Frame'},
+    codeFrameDescription: {
+        id: 'talkWithMarty.codeFrameDescription',
+        defaultMessage: 'Use the guardrails defined in the Python frame engine. Turn off to send an empty frame to the LLM.'
+    },
     settingSafeguards: {id: 'talkWithMarty.settingSafeguards', defaultMessage: 'Safeguards'},
     safeguardsPlaceholder: {
         id: 'talkWithMarty.safeguardsPlaceholder',
@@ -29,6 +34,7 @@ class TalkWithMartySettingsPanel extends React.Component {
         this.handleInstructionsChange = this.handleInstructionsChange.bind(this);
         this.handleSafeguardsChange = this.handleSafeguardsChange.bind(this);
         this.handleModelChange = this.handleModelChange.bind(this);
+        this.handleUseCodeFrameChange = this.handleUseCodeFrameChange.bind(this);
     }
 
     handleInstructionsChange(event) {
@@ -43,11 +49,17 @@ class TalkWithMartySettingsPanel extends React.Component {
         this.props.onSettingChange('model', event.target.value);
     }
 
+    handleUseCodeFrameChange(event) {
+        this.props.onSettingChange('useCodeFrame', event.target.checked);
+    }
+
 
     renderSettingsForm() {
         const {intl, settings, availableModels} = this.props;
         const options = Array.isArray(availableModels) ? availableModels : [];
         const modelValue = options.includes(settings.model) ? settings.model : (options[0] || '');
+        const useCodeFrame = settings.useCodeFrame !== false;
+        const codeFrameToggleId = 'talk-with-marty-code-frame-toggle';
 
         return (
             <form
@@ -70,6 +82,26 @@ class TalkWithMartySettingsPanel extends React.Component {
                         ))}
                     </select>
                 </label>
+                <div className={classNames(styles.inputGroup, styles.fullWidth)}>
+                    <span className={styles.inputLabel}>
+                        {intl.formatMessage(messages.settingCodeFrame)}
+                    </span>
+                    <div className={styles.toggleRow}>
+                        <input
+                            id={codeFrameToggleId}
+                            type="checkbox"
+                            className={styles.toggleInput}
+                            checked={useCodeFrame}
+                            onChange={this.handleUseCodeFrameChange}
+                        />
+                        <label
+                            htmlFor={codeFrameToggleId}
+                            className={styles.toggleDescription}
+                        >
+                            {intl.formatMessage(messages.codeFrameDescription)}
+                        </label>
+                    </div>
+                </div>
                 <label className={classNames(styles.inputGroup, styles.fullWidth)}>
                     <span className={styles.inputLabel}>
                         {intl.formatMessage(messages.settingInstructions)}
@@ -145,7 +177,8 @@ TalkWithMartySettingsPanel.propTypes = {
     settings: PropTypes.shape({
         instructions: PropTypes.string,
         safeguards: PropTypes.string,
-        model: PropTypes.string
+        model: PropTypes.string,
+        useCodeFrame: PropTypes.bool
     }),
     availableModels: PropTypes.arrayOf(PropTypes.string),
     onSettingChange: PropTypes.func,
@@ -159,7 +192,8 @@ TalkWithMartySettingsPanel.defaultProps = {
     settings: {
         instructions: '',
         safeguards: '',
-        model: ''
+        model: '',
+        useCodeFrame: true
     },
     users: [],
     availableModels: []
