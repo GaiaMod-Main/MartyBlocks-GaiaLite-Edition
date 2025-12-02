@@ -20,6 +20,16 @@ const messages = defineMessages({
         id: 'talkWithMarty.codeFrameDescription',
         defaultMessage: 'Use the guardrails defined in the Python frame engine. Turn off to send an empty frame to the LLM.'
     },
+    settingTopic: {id: 'talkWithMarty.settingTopic', defaultMessage: 'Topic'},
+    topicPlaceholder: {id: 'talkWithMarty.topicPlaceholder', defaultMessage: 'What are you teaching today?'},
+    settingLearningMaterial: {
+        id: 'talkWithMarty.settingLearningMaterial',
+        defaultMessage: 'Learning Material'
+    },
+    learningMaterialPlaceholder: {
+        id: 'talkWithMarty.learningMaterialPlaceholder',
+        defaultMessage: 'Key facts or lesson content to ground responses'
+    },
     settingSafeguards: {id: 'talkWithMarty.settingSafeguards', defaultMessage: 'Safeguards'},
     safeguardsPlaceholder: {
         id: 'talkWithMarty.safeguardsPlaceholder',
@@ -33,6 +43,8 @@ class TalkWithMartySettingsPanel extends React.Component {
 
         this.handleInstructionsChange = this.handleInstructionsChange.bind(this);
         this.handleSafeguardsChange = this.handleSafeguardsChange.bind(this);
+        this.handleTopicChange = this.handleTopicChange.bind(this);
+        this.handleLearningMaterialChange = this.handleLearningMaterialChange.bind(this);
         this.handleModelChange = this.handleModelChange.bind(this);
         this.handleUseCodeFrameChange = this.handleUseCodeFrameChange.bind(this);
     }
@@ -43,6 +55,14 @@ class TalkWithMartySettingsPanel extends React.Component {
 
     handleSafeguardsChange(event) {
         this.props.onSettingChange('safeguards', event.target.value);
+    }
+
+    handleTopicChange(event) {
+        this.props.onSettingChange('topic', event.target.value);
+    }
+
+    handleLearningMaterialChange(event) {
+        this.props.onSettingChange('learningMaterial', event.target.value);
     }
 
     handleModelChange(event) {
@@ -102,6 +122,30 @@ class TalkWithMartySettingsPanel extends React.Component {
                         </label>
                     </div>
                 </div>
+                <label className={classNames(styles.inputGroup, styles.fullWidth)}>
+                    <span className={styles.inputLabel}>
+                        {intl.formatMessage(messages.settingTopic)}
+                    </span>
+                    <input
+                        className={styles.textInput}
+                        type="text"
+                        value={settings.topic}
+                        onChange={this.handleTopicChange}
+                        placeholder={intl.formatMessage(messages.topicPlaceholder)}
+                    />
+                </label>
+                <label className={classNames(styles.inputGroup, styles.fullWidth)}>
+                    <span className={styles.inputLabel}>
+                        {intl.formatMessage(messages.settingLearningMaterial)}
+                    </span>
+                    <textarea
+                        className={styles.textareaInput}
+                        value={settings.learningMaterial}
+                        onChange={this.handleLearningMaterialChange}
+                        placeholder={intl.formatMessage(messages.learningMaterialPlaceholder)}
+                        rows={3}
+                    />
+                </label>
                 <label className={classNames(styles.inputGroup, styles.fullWidth)}>
                     <span className={styles.inputLabel}>
                         {intl.formatMessage(messages.settingInstructions)}
@@ -177,6 +221,8 @@ TalkWithMartySettingsPanel.propTypes = {
     settings: PropTypes.shape({
         instructions: PropTypes.string,
         safeguards: PropTypes.string,
+        topic: PropTypes.string,
+        learningMaterial: PropTypes.string,
         model: PropTypes.string,
         useCodeFrame: PropTypes.bool
     }),
@@ -192,6 +238,8 @@ TalkWithMartySettingsPanel.defaultProps = {
     settings: {
         instructions: '',
         safeguards: '',
+        topic: '',
+        learningMaterial: '',
         model: '',
         useCodeFrame: true
     },

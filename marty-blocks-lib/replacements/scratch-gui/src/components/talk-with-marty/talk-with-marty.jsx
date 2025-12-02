@@ -268,6 +268,8 @@ class TalkWithMarty extends React.Component {
             llmSettings: {
                 safeguards: '',
                 instructions: '',
+                topic: '',
+                learningMaterial: '',
                 model: DEFAULT_LLM_MODEL,
                 useCodeFrame: true
             },
@@ -463,29 +465,35 @@ class TalkWithMarty extends React.Component {
                         updates.transcript = parsed.transcript;
                     }
                     if (parsed.llmSettings && typeof parsed.llmSettings === 'object') {
-                    const {
-                        prompt: _ignoredPrompt,
-                        instructions,
-                        safeguards,
-                        model,
-                        useCodeFrame
-                    } = parsed.llmSettings;
-                    const rawModel = typeof model === 'string' ? model : '';
-                    const sanitizedModel = AVAILABLE_LLM_MODELS.includes(rawModel)
-                        ? rawModel
-                        : (this.state.llmSettings.model || DEFAULT_LLM_MODEL);
-                    const storedUseCodeFrame = typeof useCodeFrame === 'boolean'
-                        ? useCodeFrame
-                        : (typeof this.state.llmSettings.useCodeFrame === 'boolean'
-                            ? this.state.llmSettings.useCodeFrame
-                            : true);
-                    updates.llmSettings = {
-                        instructions: typeof instructions === 'string' ? instructions : this.state.llmSettings.instructions,
-                        safeguards: typeof safeguards === 'string' ? safeguards : this.state.llmSettings.safeguards,
-                        model: sanitizedModel,
-                        useCodeFrame: storedUseCodeFrame
-                    };
-                }
+                        const {
+                            prompt: _ignoredPrompt,
+                            instructions,
+                            safeguards,
+                            topic,
+                            learningMaterial,
+                            model,
+                            useCodeFrame
+                        } = parsed.llmSettings;
+                        const rawModel = typeof model === 'string' ? model : '';
+                        const sanitizedModel = AVAILABLE_LLM_MODELS.includes(rawModel)
+                            ? rawModel
+                            : (this.state.llmSettings.model || DEFAULT_LLM_MODEL);
+                        const storedUseCodeFrame = typeof useCodeFrame === 'boolean'
+                            ? useCodeFrame
+                            : (typeof this.state.llmSettings.useCodeFrame === 'boolean'
+                                ? this.state.llmSettings.useCodeFrame
+                                : true);
+                        updates.llmSettings = {
+                            instructions: typeof instructions === 'string' ? instructions : this.state.llmSettings.instructions,
+                            safeguards: typeof safeguards === 'string' ? safeguards : this.state.llmSettings.safeguards,
+                            topic: typeof topic === 'string' ? topic : (this.state.llmSettings.topic || ''),
+                            learningMaterial: typeof learningMaterial === 'string'
+                                ? learningMaterial
+                                : (this.state.llmSettings.learningMaterial || ''),
+                            model: sanitizedModel,
+                            useCodeFrame: storedUseCodeFrame
+                        };
+                    }
                     const storedCurrentUser = typeof parsed.currentUser === 'string' ? parsed.currentUser : null;
                     if (storedCurrentUser && sanitizedUsers.some(user => user.name === storedCurrentUser)) {
                         updates.currentUser = storedCurrentUser;
@@ -532,6 +540,8 @@ class TalkWithMarty extends React.Component {
                 llmSettings: {
                     instructions: (llmSettings && llmSettings.instructions) || '',
                     safeguards: (llmSettings && llmSettings.safeguards) || '',
+                    topic: (llmSettings && llmSettings.topic) || '',
+                    learningMaterial: (llmSettings && llmSettings.learningMaterial) || '',
                     model: llmSettings && AVAILABLE_LLM_MODELS.includes(llmSettings.model)
                         ? llmSettings.model
                         : DEFAULT_LLM_MODEL,
@@ -923,9 +933,9 @@ class TalkWithMarty extends React.Component {
 
     handleRecorderStop() {
         const blob = this.audioChunks.length
-        ? new Blob(this.audioChunks, { type: (this.mediaRecorder && this.mediaRecorder.mimeType) || 'audio/webm' })
-        : null;
-        
+            ? new Blob(this.audioChunks, { type: (this.mediaRecorder && this.mediaRecorder.mimeType) || 'audio/webm' })
+            : null;
+
         this.audioChunks = [];
         let shouldProcess = false;
         if (blob && blob.size > 500 && this.state.recordingStatus === 'recording') {
@@ -1268,47 +1278,54 @@ class TalkWithMarty extends React.Component {
             console.error('[TalkWithMarty] Error playing audio', error);
         });
         console.log("after playMarty");
-        // comment in the return to playback locally as well
-        // return;
 
-        const urlCreator = window.URL || window.webkitURL;
-        if (!urlCreator) {
+        const targetId = window.vm && window.vm.runtime && window.vm.runtime._editingTarget.id;
+        if (!targetId) {
+            console.warn('[TalkWithMarty] Unable to stream audio to Marty: target ID not found');
             return;
         }
+        const connectedRaft = getRaftUsingTargetId(targetId);
+        if (!connectedRaft || !connectedRaft.streamAudio) {
+            console.warn('[TalkWithMarty] Marty not found -- streaming audio locally instead');
+            const urlCreator = window.URL || window.webkitURL;
+            if (!urlCreator) {
+                return;
+            }
 
-        if (this.martySpeechUrl) {
-            urlCreator.revokeObjectURL(this.martySpeechUrl);
+            if (this.martySpeechUrl) {
+                urlCreator.revokeObjectURL(this.martySpeechUrl);
+            }
+
+            const blob = new Blob([uint8Array.buffer], { type: 'audio/mpeg' });
+            this.martySpeechUrl = urlCreator.createObjectURL(blob);
+
+            const audio = new Audio(this.martySpeechUrl);
+            audio.onplay = () => {
+                if (this.isComponentMounted) {
+                    this.setState({ isSpeaking: true });
+                }
+                try { martyStartsTalking(); } catch (_) { }
+            };
+            audio.onended = () => {
+                if (this.isComponentMounted) {
+                    this.setState({ isSpeaking: false });
+                }
+                try { martyStopsTalking(); } catch (_) { }
+            };
+            audio.play().catch(error => {
+                // eslint-disable-next-line no-console
+                console.warn('[TalkWithMarty] Unable to autoplay Marty response audio', error);
+                if (this.isComponentMounted) {
+                    this.setState({ isSpeaking: false });
+                }
+                try { martyStopsTalking(); } catch (_) { }
+            });
         }
-
-        const blob = new Blob([uint8Array.buffer], { type: 'audio/mpeg' });
-        this.martySpeechUrl = urlCreator.createObjectURL(blob);
-
-        const audio = new Audio(this.martySpeechUrl);
-        audio.onplay = () => {
-            if (this.isComponentMounted) {
-                this.setState({ isSpeaking: true });
-            }
-            try { martyStartsTalking(); } catch (_) { }
-        };
-        audio.onended = () => {
-            if (this.isComponentMounted) {
-                this.setState({ isSpeaking: false });
-            }
-            try { martyStopsTalking(); } catch (_) { }
-        };
-        audio.play().catch(error => {
-            // eslint-disable-next-line no-console
-            console.warn('[TalkWithMarty] Unable to autoplay Marty response audio', error);
-            if (this.isComponentMounted) {
-                this.setState({ isSpeaking: false });
-            }
-            try { martyStopsTalking(); } catch (_) { }
-        });
     }
 
 
     buildLLMSettingsForRequest() {
-        const { safeguards, instructions } = this.state.llmSettings || {};
+        const { safeguards, instructions, topic, learningMaterial } = this.state.llmSettings || {};
         const teacherSourceSettings = this.llmSettingsSource === 'server'
             ? this.serverTeacherLLMSettings
             : this.teacherLLMSettings;
@@ -1321,6 +1338,8 @@ class TalkWithMarty extends React.Component {
 
         const studentInstructions = typeof instructions === 'string' ? instructions.trim() : '';
         const studentSafeguards = typeof safeguards === 'string' ? safeguards.trim() : '';
+        const topicValue = typeof topic === 'string' ? topic.trim() : '';
+        const learningMaterialValue = typeof learningMaterial === 'string' ? learningMaterial.trim() : '';
 
         const combinedInstructions = [importantInstructions, studentInstructions]
             .filter(Boolean)
@@ -1344,6 +1363,12 @@ class TalkWithMarty extends React.Component {
         }
         if (knowledgeBase) {
             settings.knowledgeBase = knowledgeBase;
+        }
+        if (topicValue) {
+            settings.topic = topicValue;
+        }
+        if (learningMaterialValue) {
+            settings.learningMaterial = learningMaterialValue;
         }
         console.log('LLM request settings', settings, 'source', this.llmSettingsSource);
         return {
@@ -2860,7 +2885,7 @@ const martyIsThinking = () => {
         return;
     }
     connectedRaft.sendRestMessage('led/LEDeye/pattern/pinwheel?c=00ff00');
-    connectedRaft.sendRestMessage('traj/getReady/?moveTime=2000');
+    // connectedRaft.sendRestMessage('traj/getReady/?moveTime=2000');
 }
 
 const martyStartsTalking = () => {
