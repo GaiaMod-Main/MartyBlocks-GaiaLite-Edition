@@ -92,6 +92,18 @@ const messages = defineMessages({
         id: 'talkWithMarty.transcriptClear',
         defaultMessage: 'Clear Transcript'
     },
+    endSessionButton: {
+        id: 'talkWithMarty.endSessionButton',
+        defaultMessage: 'End & Save Session'
+    },
+    endSessionError: {
+        id: 'talkWithMarty.endSessionError',
+        defaultMessage: 'Could not save the session. Please try again.'
+    },
+    endSessionSuccess: {
+        id: 'talkWithMarty.endSessionSuccess',
+        defaultMessage: 'Session saved.'
+    },
     sendMessageLabel: {
         id: 'talkWithMarty.sendMessageLabel',
         defaultMessage: 'Message'
@@ -221,21 +233,27 @@ const messages = defineMessages({
 const AVAILABLE_USER_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'];
 const DEFAULT_USER_KEY = AVAILABLE_USER_KEYS[0];
 const PREPARING_PROGRESS_DURATION_MS = 1000;
-const AVAILABLE_LLM_MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-5', 'gpt-5-mini', 'gpt-5-chat', 'gemini-2.5-flash-lite'];
-const DEFAULT_LLM_MODEL = 'gpt-5';
+const AVAILABLE_LLM_MODELS = ['gpt-5-nano', 'gpt-4o', 'gpt-4.1-mini'];
+const DEFAULT_LLM_MODEL = 'gpt-5-nano';
 const FRAME_ENGINE_PROVIDER = 'frame-engine';
 const LLM_MODEL_METADATA = {
-    'gpt-4o-mini': { provider: 'openai' },
+    'gpt-5-nano': { provider: 'openai' },
     'gpt-4o': { provider: 'openai' },
-    'gpt-5': { provider: 'openai' },
-    'gpt-5-mini': { provider: 'openai' },
-    'gpt-5-chat': { provider: 'openai' },
-    'gemini-2.5-flash-lite': { provider: 'gemini' }
+    'gpt-4o-mini': { provider: 'openai' },
+    'gpt-4.1-mini': { provider: 'openai' }
 };
 
 // Added: storage key
 const SESSION_STORAGE_KEY = 'talkWithMartyState';
 const LEGACY_TRANSCRIPT_STORAGE_KEY = 'talkWithMartyTranscript';
+
+const generateSessionId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    const random = Math.random().toString(16).slice(2, 10);
+    return `marty-session-${Date.now()}-${random}`;
+};
 
 const extractTeacherLLMSettings = rawSettings => {
     const source = rawSettings && typeof rawSettings === 'object' ? rawSettings : {};
@@ -273,6 +291,7 @@ class TalkWithMarty extends React.Component {
                 model: DEFAULT_LLM_MODEL,
                 useCodeFrame: true
             },
+            sessionId: generateSessionId(),
             isMicLoading: false,
             recordingError: null,
             lastRecordingUrl: '',
@@ -289,7 +308,10 @@ class TalkWithMarty extends React.Component {
             editingUser: {},
             recordingStatus: 'idle',
             activeTextJobId: null,
-            activeTextJobStatus: null
+            activeTextJobStatus: null,
+            isEndingSession: false,
+            endSessionError: null,
+            endSessionMessage: ''
         };
         this.handleConversationModeChange = this.handleConversationModeChange.bind(this);
         this.handleInteractionModeChange = this.handleInteractionModeChange.bind(this);
@@ -345,6 +367,7 @@ class TalkWithMarty extends React.Component {
         this.handleGlobalKeyUp = this.handleGlobalKeyUp.bind(this);
         this.handleWindowBlur = this.handleWindowBlur.bind(this);
         this.playRecordingPreview = this.playRecordingPreview.bind(this);
+        this.handleEndSession = this.handleEndSession.bind(this);
 
         this.mediaStream = null;
         this.mediaRecorder = null;
@@ -457,6 +480,9 @@ class TalkWithMarty extends React.Component {
             if (storedSession) {
                 const parsed = JSON.parse(storedSession);
                 if (parsed && typeof parsed === 'object') {
+                    if (typeof parsed.sessionId === 'string' && parsed.sessionId.trim()) {
+                        updates.sessionId = parsed.sessionId.trim();
+                    }
                     const sanitizedUsers = this.sanitizeStoredUsers(parsed.users);
                     if (sanitizedUsers.length) {
                         updates.users = sanitizedUsers;
@@ -534,6 +560,7 @@ class TalkWithMarty extends React.Component {
                 ? llmSettings.useCodeFrame
                 : true;
             const payload = {
+                sessionId: this.state.sessionId,
                 transcript: this.state.transcript,
                 users: this.state.users,
                 currentUser: this.state.currentUser,
@@ -566,7 +593,8 @@ class TalkWithMarty extends React.Component {
             prevState.transcript !== this.state.transcript ||
             prevState.users !== this.state.users ||
             prevState.currentUser !== this.state.currentUser ||
-            prevState.llmSettings !== this.state.llmSettings;
+            prevState.llmSettings !== this.state.llmSettings ||
+            prevState.sessionId !== this.state.sessionId;
 
         if (didChangeSession) {
             this.saveSessionToStorage();
@@ -583,6 +611,13 @@ class TalkWithMarty extends React.Component {
 
         if (this.state.transcript.length > prevState.transcript.length) {
             this.scrollTranscriptToBottom();
+        }
+
+        const startedThinking = !prevState.isThinking && this.state.isThinking;
+        const startedSpeaking = !prevState.isSpeaking && this.state.isSpeaking;
+
+        if (startedThinking || startedSpeaking) {
+            this.scrollToScriptSection();
         }
     }
 
@@ -608,6 +643,31 @@ class TalkWithMarty extends React.Component {
                 }
             }
             container.scrollTop = container.scrollHeight;
+        };
+
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(applyScroll);
+        } else {
+            applyScroll();
+        }
+    }
+
+    scrollToScriptSection() {
+        if (!this.transcriptContainerRef || !this.transcriptContainerRef.current) {
+            return;
+        }
+
+        const container = this.transcriptContainerRef.current;
+
+        const applyScroll = () => {
+            if (typeof container.scrollIntoView === 'function') {
+                try {
+                    container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } catch (_) {
+                    container.scrollIntoView();
+                }
+            }
+            this.scrollTranscriptToBottom({ behavior: 'smooth' });
         };
 
         if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -777,6 +837,52 @@ class TalkWithMarty extends React.Component {
             // eslint-disable-next-line no-console
             console.log('[TalkWithMarty] Transcript cleared');
         });
+    }
+
+    async handleEndSession() {
+        const { sessionId } = this.state;
+        if (!sessionId) {
+            this.setState({
+                endSessionError: this.props.intl.formatMessage(messages.endSessionError),
+                endSessionMessage: ''
+            });
+            return;
+        }
+
+        this.setState({
+            isEndingSession: true,
+            endSessionError: null,
+            endSessionMessage: ''
+        });
+
+        try {
+            await this.postJson(`${serverUrl}/talkWithMarty/end-session`, {
+                sessionId,
+                transcript: this.state.transcript,
+                users: this.state.users
+            });
+            if (this.isComponentMounted) {
+                this.setState({
+                    endSessionMessage: this.props.intl.formatMessage(messages.endSessionSuccess),
+                    endSessionError: null
+                });
+            }
+        } catch (error) {
+            const fallback = this.props.intl.formatMessage(messages.endSessionError);
+            const message = error && typeof error.message === 'string'
+                ? error.message
+                : fallback;
+            if (this.isComponentMounted) {
+                this.setState({
+                    endSessionError: message,
+                    endSessionMessage: ''
+                });
+            }
+        } finally {
+            if (this.isComponentMounted) {
+                this.setState({ isEndingSession: false });
+            }
+        }
     }
 
     async ensureMediaStream() {
@@ -1423,7 +1529,8 @@ class TalkWithMarty extends React.Component {
             provider: FRAME_ENGINE_PROVIDER,
             conversationHistory: this.buildConversationHistory(),
             settings: this.buildLLMSettingsForRequest(),
-            model: selectedModel
+            model: selectedModel,
+            sessionId: this.state.sessionId
         };
         if (providerConfig) {
             llmConfig.providerConfig = providerConfig;
@@ -1457,7 +1564,8 @@ class TalkWithMarty extends React.Component {
             provider: FRAME_ENGINE_PROVIDER,
             conversationHistory: this.buildConversationHistory(),
             settings: this.buildLLMSettingsForRequest(),
-            model: selectedModel
+            model: selectedModel,
+            sessionId: this.state.sessionId
         };
         if (providerConfig) {
             llmConfig.providerConfig = providerConfig;
@@ -2575,21 +2683,19 @@ class TalkWithMarty extends React.Component {
                             background: 'rgba(0,0,0,0.3)', // near-invisible but blocks clicks
                             zIndex: 9999,
                             display: 'flex',
-                            justifyContent: 'center',
+                            justifyContent: 'flex-end',
                             alignItems: 'flex-start',
-                            pointerEvents: 'auto'
+                            pointerEvents: 'auto',
+                            padding: '12px'
                         }}
                     >
                         <div
                             className={styles.activityOverlay || ''}
                             style={{
-                                position: 'absolute',
-                                top: "50%",
-                                transform: 'translateY(-50%)',
                                 background: 'transparent',
                                 display: 'flex',
                                 flexDirection: 'column',
-                                alignItems: 'center',
+                                alignItems: 'flex-end',
                                 gap: '0.75rem',
                                 pointerEvents: 'none', // ensure no accidental interaction
                                 // animation: 'tm-slideDown 300ms ease-out'
@@ -2770,6 +2876,16 @@ class TalkWithMarty extends React.Component {
                             <div className={styles.headerActions}>
                                 <button
                                     type="button"
+                                    className={styles.primaryButton}
+                                    onClick={this.handleEndSession}
+                                    disabled={this.state.isEndingSession || !this.state.transcript.length}
+                                >
+                                    {this.state.isEndingSession
+                                        ? `${intl.formatMessage(messages.endSessionButton)}...`
+                                        : intl.formatMessage(messages.endSessionButton)}
+                                </button>
+                                <button
+                                    type="button"
                                     className={styles.secondaryButton}
                                     onClick={this.handleDownloadTranscript}
                                     disabled={!this.state.transcript.length}
@@ -2785,6 +2901,17 @@ class TalkWithMarty extends React.Component {
                                     {intl.formatMessage(messages.transcriptClear)}
                                 </button>
                             </div>
+                            {(this.state.endSessionMessage || this.state.endSessionError) && (
+                                <div
+                                    style={{
+                                        marginTop: '0.25rem',
+                                        color: this.state.endSessionError ? '#b3261e' : '#1f7a1f',
+                                        fontSize: '0.85rem'
+                                    }}
+                                >
+                                    {this.state.endSessionError || this.state.endSessionMessage}
+                                </div>
+                            )}
                         </header>
                         <div
                             className={styles.transcriptContainer}
