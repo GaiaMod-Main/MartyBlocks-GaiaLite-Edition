@@ -126,7 +126,7 @@ class SaveLoad extends React.Component {
       setTimeout(() => {
         // give some time so all the buttons/devices are rendered before we start updating the UI
         window.raftManager.onProjectLoaded();
-      }, 2000);
+      }, 3000);
       alert(this.props.intl.formatMessage(messages.projectLoaded));
       // this seems to be required to let the wm load the project
       window.setTimeout(() => this.props.onActivateBlocksTab());
