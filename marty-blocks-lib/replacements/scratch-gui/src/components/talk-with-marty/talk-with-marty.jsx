@@ -249,10 +249,10 @@ const LEGACY_TRANSCRIPT_STORAGE_KEY = 'talkWithMartyTranscript';
 
 const generateSessionId = () => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-        return crypto.randomUUID();
+        return crypto.randomUUID().replace(/-/g, '');
     }
     const random = Math.random().toString(16).slice(2, 10);
-    return `marty-session-${Date.now()}-${random}`;
+    return `marty_session_${Date.now()}_${random}`;
 };
 
 const extractTeacherLLMSettings = rawSettings => {
@@ -357,6 +357,8 @@ class TalkWithMarty extends React.Component {
         this.resolveNormalizedPayload = this.resolveNormalizedPayload.bind(this);
         this.isPayloadComplete = this.isPayloadComplete.bind(this);
         this.toggleSettingsPanel = this.toggleSettingsPanel.bind(this);
+        this.extractSessionIdFromRaw = this.extractSessionIdFromRaw.bind(this);
+        this.applyResolvedSessionId = this.applyResolvedSessionId.bind(this);
         this.handleAddUser = this.handleAddUser.bind(this);
         this.handleRemoveUser = this.handleRemoveUser.bind(this);
         this.handleUpdateUser = this.handleUpdateUser.bind(this);
@@ -585,6 +587,28 @@ class TalkWithMarty extends React.Component {
         } catch (e) {
             // eslint-disable-next-line no-console
             console.warn('[TalkWithMarty] Failed to save session', e);
+        }
+    }
+
+    extractSessionIdFromRaw(raw) {
+        const visited = new Set();
+        let current = raw;
+        while (current && typeof current === 'object' && !visited.has(current)) {
+            visited.add(current);
+            const candidate = (typeof current.session_id === 'string' && current.session_id.trim()) ||
+                (typeof current.sessionId === 'string' && current.sessionId.trim());
+            if (candidate) {
+                return candidate.trim();
+            }
+            current = current.raw;
+        }
+        return null;
+    }
+
+    applyResolvedSessionId(raw) {
+        const resolved = this.extractSessionIdFromRaw(raw);
+        if (resolved && resolved !== this.state.sessionId && this.isComponentMounted) {
+            this.setState({ sessionId: resolved });
         }
     }
 
@@ -828,14 +852,16 @@ class TalkWithMarty extends React.Component {
         if (typeof window !== 'undefined' && window.localStorage) {
             try { window.localStorage.removeItem(LEGACY_TRANSCRIPT_STORAGE_KEY); } catch (_) { }
         }
+        const newSessionId = generateSessionId();
         this.setState({
             transcript: [],
             lastRecordingUrl: '',
             recordingError: null,
-            messageError: null
+            messageError: null,
+            sessionId: newSessionId
         }, () => {
             // eslint-disable-next-line no-console
-            console.log('[TalkWithMarty] Transcript cleared');
+            console.log('[TalkWithMarty] Transcript cleared; new session started', newSessionId);
         });
     }
 
@@ -1743,6 +1769,9 @@ class TalkWithMarty extends React.Component {
         }
 
         const normalized = this.normalizeTalkWithMartyPayload(rawPayload);
+        if (normalized) {
+            this.applyResolvedSessionId(normalized.llm?.raw || normalized.raw);
+        }
         if (this.isComponentMounted && normalized.status) {
             this.setState(prevState => {
                 if (prevState.activeTextJobId === jobId && prevState.activeTextJobStatus === normalized.status) {
@@ -2069,6 +2098,8 @@ class TalkWithMarty extends React.Component {
             return;
         }
 
+        this.applyResolvedSessionId(normalizedPayload.llm?.raw || normalizedPayload.raw);
+
         if (normalizedPayload.status === 'failed') {
             const errorMessage = normalizedPayload.error ||
                 this.props.intl.formatMessage(messages.textRequestFailed);
@@ -2126,6 +2157,9 @@ class TalkWithMarty extends React.Component {
 
     applySpeechResponse(response, forcedUserName) {
         if (!response) return;
+        if (response.llm && response.llm.raw) {
+            this.applyResolvedSessionId(response.llm.raw);
+        }
         const userName = forcedUserName || this.pendingSpeechUserName || this.state.currentUser;
         const entriesToAdd = [];
         if (response.transcript && response.transcript.text) {
