@@ -34,17 +34,6 @@ class WonderBlocks {
             menuIconURI: iconURI,
             blockIconURI: iconURI,
             blocks: [
-			{
-            opcode: 'isGaiaMod',
-            blockType: BlockType.BOOLEAN,
-            text: 'Is GaiaMod?',
-			disableMonitor: true,
-            },
-			{
-            opcode: 'removeUnusedExtensions',
-            blockType: BlockType.COMMAND,
-            text: 'Remove all unused extensions',
-          },
                           {
             opcode: "fetch",
             blockType: BlockType.REPORTER,
@@ -58,9 +47,9 @@ class WonderBlocks {
               },
              },
 			 {
-                    opcode: 'skibidi',
+                    opcode: 'marty',
                     blockType: BlockType.COMMAND,
-                    text: 'Did you like Skibidi Toilet?',
+                    text: 'Did you like MartyBlocks?',
                 },
                  {
                     opcode: 'showAlert',
@@ -100,13 +89,6 @@ class WonderBlocks {
         };
     }
 
-    isGaiaMod() {
-  return 'true';
-    }
-
-async removeUnusedExtensions() {
-      vm.extensionManager.removeUnusedExtensions();
-    }
 	
  fetch(args) {
       return fetch(args.URL)
@@ -117,7 +99,7 @@ async removeUnusedExtensions() {
  skibidi() {
         Swal.fire({
             title: '!!!???',
-            text: 'What on Earth is Skibidi Toilet!?',
+            text: 'What on Earth is MartyBlocks!?',
             icon: 'info'
         });
     }
